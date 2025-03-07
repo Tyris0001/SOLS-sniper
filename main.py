@@ -334,17 +334,8 @@ class OptimizedClient(discord.Client):
             # Check for share codes
             elif match := SHARE_CODE_PATTERN.search(content):
                 share_code = match.group(1)
-                private_server_url = await self.resolve_share_code(share_code)
-
-                if not private_server_url:
-                    print("Failed to resolve share code")
-                    self.is_processing = False
-                    return False
-
-                if ps_match := PRIVATE_SERVER_PATTERN.search(private_server_url):
-                    game_id, private_code = ps_match.groups()
-                    uri = f"roblox://placeId=15532962292&linkCode={private_code}"
-                    await asyncio.get_event_loop().run_in_executor(executor, launch_game, uri)
+                uri = f"roblox://navigation/share_links?code={}&type=Server"
+                await asyncio.get_event_loop().run_in_executor(executor, launch_game, uri)
 
             # Check for deeplink format
             elif match := DEEPLINK_PATTERN.search(content):
