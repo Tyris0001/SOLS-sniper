@@ -23,6 +23,9 @@ import platform
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
+import aiohttp
+from datetime import datetime, timedelta
+
 
 # Precompile regex patterns for faster matching
 PRIVATE_SERVER_PATTERN = re.compile(r'https://www\.roblox\.com/games/(\d+)/.+\?privateServerLinkCode=([\w-]+)')
@@ -81,6 +84,9 @@ class OptimizedClient(discord.Client):
         super().__init__(enable_debug_events=True)
         self.biomes_cache = set()
         self.update_biomes_cache()
+        self.csrf_token = None
+        self.last_csrf_update = None
+        self.csrf_update_interval = timedelta(minutes=10)
         self.is_processing = False  # Flag to control message processing, locking the sniper if we're in a target biome
 
     def update_biomes_cache(self):
@@ -88,14 +94,10 @@ class OptimizedClient(discord.Client):
         config = read_config()
         self.biomes_cache = set(b.lower() for b in config.get('biomes', []))
 
-
     async def on_ready(self):
         # print('Logged in as', self.user)
         print_banner()
         print('Sniper is ready and monitoring for private server links')
-
-
-
 
     async def kill_roblox_process(self, process: psutil.Process):
         """Safely terminate the Roblox process"""
@@ -229,6 +231,89 @@ class OptimizedClient(discord.Client):
             print(f"Error reading log file: {e}")
             return None
 
+    async def resolve_share_code(self, share_code):
+        """Resolve a share code to a private server URL"""
+        url = 'https://apis.roblox.com/sharelinks/v1/resolve-link'
+
+        # Get current config for cookie
+        config = read_config()
+        cookie = config.get('cookie')
+        if not cookie:
+            print("No cookie found in config")
+            return None
+
+        # Get current CSRF token
+        csrf_token = await self.get_csrf_token()
+        if not csrf_token:
+            print("Failed to get CSRF token")
+            return None
+
+        headers = {
+            'Content-Type': 'application/json;charset=utf-8',
+            'Accept': 'application/json, text/plain, */*',
+            'Origin': 'https://www.roblox.com',
+            'Referer': 'https://www.roblox.com/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Cookie': f'.ROBLOSECURITY={cookie}',
+            'x-csrf-token': csrf_token
+        }
+
+        data = {
+            "linkId": share_code,
+            "linkType": "Server"
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=data, headers=headers) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        ps_data = result.get('privateServerInviteData', {})
+                        return (ps_data.get('placeId'), ps_data.get('privateServerLinkCode'))
+                    elif response.status == 403:  # CSRF token expired
+                        print("CSRF token expired, updating...")
+                        await self.update_csrf_token()
+                        return await self.resolve_share_code(share_code)  # Retry with new token
+                    else:
+                        print(f"Failed to resolve share code: {response.status}")
+                        return None
+        except Exception as e:
+            print(f"Error resolving share code: {e}")
+            return None
+
+    async def csrf_update_loop(self):
+        """Background task to periodically update the CSRF token"""
+        while True:
+            await asyncio.sleep(self.csrf_update_interval.total_seconds())
+            await self.update_csrf_token()
+
+    async def get_csrf_token(self):
+        """Get the current CSRF token, updating if necessary"""
+        current_time = datetime.now()
+        if (not self.csrf_token or
+                not self.last_csrf_update or
+                current_time - self.last_csrf_update > self.csrf_update_interval):
+            self.csrf_token = await self.update_csrf_token()
+        return self.csrf_token
+
+    async def update_csrf_token(self):
+        """Update the CSRF token by fetching it from Roblox"""
+        headers = {
+            'Content-Type': 'application/json;charset=utf-8',
+            'Accept': 'application/json, text/plain, */*',
+            'Origin': 'https://www.roblox.com',
+            'Referer': 'https://www.roblox.com/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Cookie': f'.ROBLOSECURITY={read_config().get("cookie")}'
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post('https://auth.roblox.com/v2/logout',
+                                    headers=headers) as response:
+                csrf_token = response.headers.get('x-csrf-token')
+                if not csrf_token:
+                    raise Exception("Failed to get CSRF token")
+                return csrf_token
+
     async def process_server_link(self, content):
         """Process server links with pre-compiled regex matching"""
         # Don't process if already handling a link
@@ -236,6 +321,8 @@ class OptimizedClient(discord.Client):
             return
 
         self.is_processing = True  # Set processing flag
+
+        game_id, private_code = None, None
 
         try:
             # Check for private server links
@@ -249,6 +336,7 @@ class OptimizedClient(discord.Client):
                 share_code = match.group(1)
                 uri = f"roblox://navigation/share_links?code={share_code}&type=Server"
                 await asyncio.get_event_loop().run_in_executor(executor, launch_game, uri)
+                game_id, private_code = await self.resolve_share_code(share_code)
 
             # Check for deeplink format
             elif match := DEEPLINK_PATTERN.search(content):
@@ -264,6 +352,14 @@ class OptimizedClient(discord.Client):
                 iterator += 1
                 await asyncio.sleep(.5)
                 roblox_running, roblox_process = await self.is_roblox_running()
+
+            # Here we make sure that the game id matches the id for SOLs rng
+            if str(game_id) != "15532962292":
+                # This means we're in a game that isn't SOLs rng
+                await asyncio.get_event_loop().run_in_executor(executor, launch_game, "roblox://")
+                print("Not in SOL's RNG, closing game")
+                self.is_processing = False
+                return
 
             if iterator >= 50:
                 print("Timeout waiting for Roblox to start")
@@ -367,8 +463,19 @@ class OptimizedClient(discord.Client):
             command_parts = message.content.lower().split(' ')
             command = command_parts[0][1:]
 
+            if command == 'setcookie':
+                if len(command_parts) < 2:
+                    await message.channel.send("❌ Error: Please provide the cookie value")
+                    return
 
-            if command == 'add':
+                cookie = message.content.split(' ', 1)[1]  # Get everything after the command
+                config = read_config()
+                config['cookie'] = cookie
+                save_config(config)
+                await message.channel.send("✅ Cookie updated successfully")
+                return
+
+            elif command == 'add':
                 if len(command_parts) < 2:
                     await message.channel.send("❌ Error: Please provide a biome name")
                     return

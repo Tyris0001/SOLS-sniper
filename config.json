@@ -10,6 +10,9 @@
         "giltch",
         "glithc"
     ],
-    "channels": ["1282542323590496277"],
+    "channels": ["1174047212246925442"],
     "token": "",
+    "cookie": "",
+    "csrf_token": "",
+    "csrf_token_updated_at": 0
 }

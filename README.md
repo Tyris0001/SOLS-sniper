@@ -20,11 +20,12 @@ Once python is installed run:
 ```sh
 pip install -r requirements.txt
 ```
-
+## To configure the sniper
 Edit the `config.json` file;
 `biomes`: This is where all keywords should be added which should trigger the sniper
 `channels`: List of discord channel IDs which are monitored by the sniper
 `token`: Your discord account token which is a member of the SOLS rng discord server (or others)
+`cookie`: Your Roblox cookie which is used for the share-code resolver (this prevents you from joining any crosswoods games)
 
 ## To run the sniper
 ```sh
