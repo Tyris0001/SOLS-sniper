@@ -71,7 +71,7 @@ def launch_game(uri):
         if platform.system() == 'Darwin':  # macOS
             subprocess.Popen(['open', uri])
         elif platform.system() == 'Windows':  # Windows
-            subprocess.Popen(uri, shell=True)
+            os.startfile(uri)
         else:
             print(f"Unsupported operating system: {platform.system()}")
 
@@ -120,7 +120,7 @@ class OptimizedClient(discord.Client):
                 None,
                 lambda: subprocess.call(
                     ['powershell', '-Command',
-                     '$host.ui.RawUI.FlushInputBuffer();$response = $host.UI.PromptForChoice("Biome Found", "Do you want to continue?", @("&Yes", "&No"), 1)'],
+                         '$host.ui.RawUI.FlushInputBuffer();$response = $host.UI.PromptForChoice("Biome Found", "Do you want to continue?", @("&Yes", "&No"), 1)'],
                     creationflags=CREATE_NO_WINDOW
                 )
             )
@@ -289,7 +289,7 @@ class OptimizedClient(discord.Client):
 
             if current_biome is None:
                 print("Could not detect current biome")
-                # await self.kill_roblox_process(roblox_process)
+                await asyncio.get_event_loop().run_in_executor(executor, launch_game, "roblox://")
                 return
 
             print("Current biome: " + current_biome if current_biome != None else "Unknown")
@@ -299,14 +299,14 @@ class OptimizedClient(discord.Client):
                 should_continue = await self.show_continue_prompt()
                 if not should_continue:
                     # User chose not to continue, close Roblox
-                    # #await self.kill_roblox_process(roblox_process)
+                    await asyncio.get_event_loop().run_in_executor(executor, launch_game, "roblox://")
                     print('')
                 else:
                     self.is_processing = False  # Reset flag if user continues
             else:
                 # No matching biome, close Roblox
                 print('')
-                # await self.kill_roblox_process(roblox_process)
+                await asyncio.get_event_loop().run_in_executor(executor, launch_game, "roblox://")
 
         except Exception as e:
             print(f"Error in process_server_link: {e}")
