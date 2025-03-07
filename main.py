@@ -334,7 +334,7 @@ class OptimizedClient(discord.Client):
             # Check for share codes
             elif match := SHARE_CODE_PATTERN.search(content):
                 share_code = match.group(1)
-                uri = f"roblox://navigation/share_links?code={}&type=Server"
+                uri = f"roblox://navigation/share_links?code={share_code}&type=Server"
                 await asyncio.get_event_loop().run_in_executor(executor, launch_game, uri)
 
             # Check for deeplink format
