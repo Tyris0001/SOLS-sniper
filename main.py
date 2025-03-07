@@ -11,12 +11,10 @@
 
 
 """
-
+import ctypes
 import os
 import psutil
-import logging
 from typing import Optional, Tuple
-import aiohttp
 import discord
 import json
 import re
@@ -25,7 +23,6 @@ import platform
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
-from datetime import datetime, timedelta
 
 # Precompile regex patterns for faster matching
 PRIVATE_SERVER_PATTERN = re.compile(r'https://www\.roblox\.com/games/(\d+)/.+\?privateServerLinkCode=([\w-]+)')
@@ -115,16 +112,20 @@ class OptimizedClient(discord.Client):
     async def show_continue_prompt(self):
         """Show a platform-specific prompt for user confirmation"""
         if platform.system() == 'Windows':
-            CREATE_NO_WINDOW = 0x08000000
+            MB_YESNO = 0x4
+            MB_ICONINFORMATION = 0x40
+            IDYES = 6
+
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: subprocess.call(
-                    ['powershell', '-Command',
-                         '$host.ui.RawUI.FlushInputBuffer();$response = $host.UI.PromptForChoice("Biome Found", "Do you want to continue?", @("&Yes", "&No"), 1)'],
-                    creationflags=CREATE_NO_WINDOW
+                lambda: ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "BIOME FOUND!! SNIPER HAS BEEN PAUSED.\nDo you want to continue sniping?",
+                    "Biome Found",
+                    MB_YESNO | MB_ICONINFORMATION
                 )
             )
-            return result == 0
+            return result == IDYES
         elif platform.system() == 'Darwin':  # macOS
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
