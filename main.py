@@ -1,5 +1,4 @@
 
-
 """
       _              _
      | |            (_)
@@ -32,8 +31,8 @@ from datetime import datetime, timedelta
 PRIVATE_SERVER_PATTERN = re.compile(r'https://www\.roblox\.com/games/(\d+)/.+\?privateServerLinkCode=([\w-]+)')
 SHARE_CODE_PATTERN = re.compile(r'https://www\.roblox\.com/share\?code=([a-f0-9]+)&type=Server')
 DEEPLINK_PATTERN = re.compile(r'https://www\.roblox\.com/games/start\?placeId=(\d+)(?:&launchData=([^&]+))?')
-CSRF_PATTERN = re.compile(r'data-token=\"(.+)\"')
-URL_PATTERN = re.compile('(?P<url>https?://[^\s]+)')
+CSRF_PATTERN = re.compile(r'data-token="(.+)"')  # Fixed escaped quotation mark
+URL_PATTERN = re.compile(r'(?P<url>https?://[^\s]+)')  # Added raw string prefix
 
 # Thread pool for handling subprocess calls
 executor = ThreadPoolExecutor(max_workers=4)
@@ -49,18 +48,30 @@ def print_banner():
     """)
 def read_config():
     with config_lock:
-        with open('config.json', 'r') as file:
-            return json.load(file)
-
+        try:
+            with open('config.json', 'r', encoding='utf-8') as file:
+                return json.load(file)
+        except json.JSONDecodeError as e:
+            print(f"Error reading config file: {e}")
+            # Return a default config if file is corrupt
+            return {
+                "token": "",
+                "cookie": "",
+                "csrf_token": "",
+                "csrf_last_update": "",
+                "biomes": ["glitch", "dreamspace"],
+                "channels": []
+            }
 
 def save_config(config):
     with config_lock:
         with open('config.json', 'w') as file:
             file.write(json.dumps(config, indent=4))
+
 def launch_game(uri):
     """Launch Roblox using the correct URI format"""
     try:
-        #print(f"Launching with URI: {uri}")
+        # print(f"Launching with URI: {uri}")
         if platform.system() == 'Darwin':  # macOS
             subprocess.Popen(['open', uri])
         elif platform.system() == 'Windows':  # Windows
@@ -96,7 +107,7 @@ class OptimizedClient(discord.Client):
             'Origin': 'https://www.roblox.com',
             'Referer': 'https://www.roblox.com/',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Cookie': '.ROBLOSECURITY='+roblox_cookie
+            'Cookie': '.ROBLOSECURITY= ' +roblox_cookie
         }
         try:
             async with aiohttp.ClientSession() as session:
@@ -106,7 +117,7 @@ class OptimizedClient(discord.Client):
                         if match := CSRF_PATTERN.search(text):
                             self.csrf_token = match.group(1)
                             self.last_csrf_update = datetime.now()
-                            #print(f"Updated CSRF token: {self.csrf_token}")
+                            # print(f"Updated CSRF token: {self.csrf_token}")
 
                             # Save to config
                             config = read_config()
@@ -172,7 +183,7 @@ class OptimizedClient(discord.Client):
 
                         print("CSRF token expired, updating...\n", await response.text())
                         await self.update_csrf_token()
-                        return await self.resolve_share_code(share_code, counter+1)  # Retry with new token
+                        return await self.resolve_share_code(share_code, counte r +1)  # Retry with new token
                     else:
                         print(f"Failed to resolve share code: {response.status}")
                         return None
@@ -181,10 +192,10 @@ class OptimizedClient(discord.Client):
             return None
 
     async def on_ready(self):
-        #print('Logged in as', self.user)
+        # print('Logged in as', self.user)
         print_banner()
         print('Sniper is ready and monitoring for private server links')
-        #print('Biomes being sniped: [Windy, Rainy, Hell, Starfall, Glitch, Dreamspace]')
+        # print('Biomes being sniped: [Windy, Rainy, Hell, Starfall, Glitch, Dreamspace]')
         # Initial CSRF token update
         await self.update_csrf_token()
 
@@ -287,21 +298,29 @@ class OptimizedClient(discord.Client):
         return stable_samples >= required_samples
 
     async def get_current_biome(self):
-        # Check platform
         log_dir_path = None
         if platform.system() == 'Darwin':  # macOS
             log_dir_path = os.path.expanduser('~/Library/Logs/Roblox')
         elif platform.system() == 'Windows':  # Windows
-            log_dir_path = os.path.expanduser("~/AppData/Local/Roblox/logs/")
+            log_dir_path = os.path.expanduser("~/AppData/Local/Roblox/logs")
+
+        if not log_dir_path or not os.path.exists(log_dir_path):
+            print(f"Log directory not found: {log_dir_path}")
+            return None
 
         latest_log_file, latest_log_time = None, 0
 
-        for filename in os.listdir(log_dir_path):
-            file_path = os.path.join(log_dir_path, filename)
-            file_time = os.path.getmtime(file_path)
-            if file_time > latest_log_time:
-                latest_log_time = file_time
-                latest_log_file = file_path
+        try:
+            for filename in os.listdir(log_dir_path):
+                file_path = os.path.join(log_dir_path, filename)
+                if os.path.isfile(file_path):  # Make sure it's a file
+                    file_time = os.path.getmtime(file_path)
+                    if file_time > latest_log_time:
+                        latest_log_time = file_time
+                        latest_log_file = file_path
+        except Exception as e:
+            print(f"Error accessing log directory: {e}")
+            return None
 
         if not latest_log_file:
             return None
@@ -313,7 +332,8 @@ class OptimizedClient(discord.Client):
                     if '"largeImage":{"hoverText":"' in line:
                         biome = line.split('"largeImage":{"hoverText":"')[1].split('"')[0].strip()
                         return biome
-        except FileNotFoundError:
+        except Exception as e:
+            print(f"Error reading log file: {e}")
             return None
 
     async def process_server_link(self, content):
@@ -394,7 +414,7 @@ class OptimizedClient(discord.Client):
             else:
                 # No matching biome, close Roblox
                 print('')
-                #await self.kill_roblox_process(roblox_process)
+                # await self.kill_roblox_process(roblox_process)
 
         except Exception as e:
             print(f"Error in process_server_link: {e}")
