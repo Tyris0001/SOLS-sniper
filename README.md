@@ -25,8 +25,6 @@ Edit the `config.json` file;
 `biomes`: This is where all keywords should be added which should trigger the sniper
 `channels`: List of discord channel IDs which are monitored by the sniper
 `token`: Your discord account token which is a member of the SOLS rng discord server (or others)
--- DO NOT EDIT THESE VALUES --
-`csrf_token` & `csrf_last_update`
 
 ## To run the sniper
 ```sh
