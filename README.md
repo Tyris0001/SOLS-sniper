@@ -2,7 +2,6 @@
 A biome sniper for the roblox game sol's rng which utilizes methods that are faster than most competitors.<br>
 [JOIN THE DISCORD](https://discord.gg/ZxNRNQkz)
 
-This is the free version, for the paid version which has an average sniping time of ~200ms-300ms reach out to me on discord.
 `_tyris`
 ## What makes this sniper stand out
 Instead of using the typical `on_message` function which spawns from the discord gateway's websocket connection,
